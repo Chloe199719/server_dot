@@ -56,7 +56,7 @@ impl ConnectionInitPacketSent {
 #[derive(Debug, Clone)]
 pub struct ConnectionInitSync {
     client_id: Vec<u8>,
-    position: Position,
+    pub position: Position,
 }
 impl ConnectionInitSync {
     pub fn new(client_id: Vec<u8>, position: Position) -> Self {

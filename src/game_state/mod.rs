@@ -1,4 +1,13 @@
-use std::{collections::HashMap, time::Instant};
+use std::{
+    collections::HashMap,
+    sync::Arc,
+    time::{Duration, Instant},
+};
+
+use tokio::net::UdpSocket;
+pub const CLEANUP_INTERVAL_SECS: u64 = 5;
+const PLAYER_TIMEOUT_SECS: u64 = 10;
+use crate::packet::{ping::PlayerLeft, GamePacket, MessageType};
 #[derive(Debug, Clone)]
 
 pub struct GameState {
@@ -54,6 +63,46 @@ impl GameState {
     }
     pub fn get_height(&self) -> u32 {
         self.height
+    }
+    pub async fn cleanup_inactive_players(
+        &mut self,
+        socket: &Arc<UdpSocket>,
+    ) -> Result<(), Box<dyn std::error::Error>> {
+        let now = Instant::now();
+
+        // Find inactive players
+        let inactive_players: Vec<(String, Player)> = self
+            .players
+            .iter()
+            .filter(|(_, player)| {
+                now.duration_since(player.heartbeat) > Duration::from_secs(PLAYER_TIMEOUT_SECS)
+            })
+            .map(|(addr, player)| (addr.clone(), player.clone()))
+            .collect();
+
+        // Notify others about players leaving
+        for (addr, player) in inactive_players {
+            let player_left_payload = PlayerLeft::new(player.id);
+
+            for (target_addr, p) in &self.players {
+                if target_addr != &addr {
+                    let packet = GamePacket::new(
+                        MessageType::PlayerLeft,
+                        0,
+                        player_left_payload.serialize(),
+                        p.id.as_bytes().to_vec(),
+                    );
+                    socket.send_to(&packet.serialize(), target_addr).await?;
+                }
+            }
+        }
+
+        // Remove inactive players
+        self.players.retain(|_, player| {
+            now.duration_since(player.heartbeat) <= Duration::from_secs(PLAYER_TIMEOUT_SECS)
+        });
+
+        Ok(())
     }
 }
 #[derive(Debug, Clone)]

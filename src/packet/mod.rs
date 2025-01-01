@@ -6,7 +6,8 @@ use bytes::{BufMut, BytesMut};
 use crate::game_state::Position;
 
 // Define an enum for message types.
-#[derive(Debug, Clone, Copy)]
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum MessageType {
     PositionUpdate = 0x01,
     ChatMessage = 0x02,
@@ -68,7 +69,7 @@ impl GamePacket {
         let msg_type = MessageType::from_byte(data[0])?;
         let version = data[1];
         let client_id = &data[2..20];
-        let seq_num = u32::from_be_bytes([data[23], data[22], data[21], data[20]]);
+        let seq_num = u32::from_be_bytes([data[20], data[21], data[22], data[23]]);
         let payload = data[24..].to_vec();
         Some(GamePacket {
             msg_type,
@@ -88,7 +89,7 @@ pub struct PositionGamePacket {
     pub position: Position,
 }
 impl PositionGamePacket {
-    pub fn new(game_packet: GamePacket) -> Self {
+    pub fn new(game_packet: &GamePacket) -> Self {
         let position = Position {
             x: f32::from_be_bytes([
                 game_packet.payload[3],
@@ -106,7 +107,7 @@ impl PositionGamePacket {
         PositionGamePacket {
             msg_type: game_packet.msg_type,
             version: game_packet.version,
-            client_id: game_packet.client_id,
+            client_id: game_packet.client_id.clone(),
             seq_num: game_packet.seq_num,
             position,
         }
