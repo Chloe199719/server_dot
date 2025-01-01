@@ -1,95 +1,35 @@
-use std::{
-    collections::HashMap,
-    sync::Arc,
-    time::{Duration, Instant},
-};
+use std::{sync::Arc, time::Instant};
 
 use server_dot::{
     game_state::{self, Player, Position},
     packet::{
         connection_init::{ConnectionInitPacketSent, ConnectionInitSync},
-        ping::PlayerLeft,
         position::PlayerPosition,
         GamePacket, MessageType, PositionGamePacket,
     },
+    tasks::{handle_cleanup_task, HeartbeatManager},
 };
-use tokio::{net::UdpSocket, sync::Mutex, task, time};
+use tokio::{net::UdpSocket, sync::Mutex, task};
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let server_addr = "0.0.0.0:5000";
     let socket = Arc::new(UdpSocket::bind(server_addr).await?);
     let game_state = Arc::new(Mutex::new(game_state::GameState::default()));
+
+    // Player cleanup task
     let cleanup_state = Arc::clone(&game_state);
     let cleanup_socket = Arc::clone(&socket);
-    task::spawn(async move {
-        let interval = time::interval(Duration::from_secs(5));
-        tokio::pin!(interval);
+    task::spawn(handle_cleanup_task(cleanup_state, cleanup_socket));
 
-        loop {
-            interval.tick().await;
-            let mut state = cleanup_state.lock().await;
-            let now = Instant::now();
-            let ids_to_remove: HashMap<String, Player> = state
-                .players
-                .iter()
-                .filter(|(_, player)| {
-                    now.duration_since(player.heartbeat) > Duration::from_secs(10)
-                })
-                .map(|(addr, player)| (addr.clone(), player.clone()))
-                .collect();
-            for id in ids_to_remove {
-                let player_left_payload = PlayerLeft::new(id.1.id);
-                for (addr, p) in &state.players {
-                    if addr != &id.0 {
-                        let packet = GamePacket::new(
-                            MessageType::PlayerLeft,
-                            0,
-                            player_left_payload.serialize(),
-                            p.id.as_bytes().to_vec(),
-                        );
-                        let data = packet.serialize();
-                        cleanup_socket.send_to(&data, addr).await.unwrap();
-                    }
-                }
-            }
-            state.players.retain(|_addr, player| {
-                if now.duration_since(player.heartbeat) > Duration::from_secs(10) {
-                    // println!("Removing inactive player: {}", addr);
-                    false
-                } else {
-                    true
-                }
-            });
-        }
-    });
     // Start a Task to ping all players
     // Start a task for sending heartbeats
-    let ping_socket = Arc::clone(&socket);
-    let ping_state = Arc::clone(&game_state);
-    task::spawn(async move {
-        let interval = time::interval(Duration::from_secs(3));
-        tokio::pin!(interval);
 
-        loop {
-            interval.tick().await;
-            let state = ping_state.lock().await;
-            for (addr, player) in &state.players {
-                let reply = GamePacket::new(
-                    MessageType::Heartbeat,
-                    0,
-                    vec![],
-                    player.id.as_bytes().to_vec(),
-                );
-                let data = reply.serialize();
-                if let Ok(addr) = addr.parse::<std::net::SocketAddr>() {
-                    if let Err(e) = ping_socket.send_to(&data, addr).await {
-                        eprintln!("Failed to send heartbeat to {}: {}", addr, e);
-                    }
-                }
-            }
-        }
+    let heartbeat_manager = HeartbeatManager::new(Arc::clone(&socket), Arc::clone(&game_state));
+    task::spawn(async move {
+        heartbeat_manager.run().await;
     });
+
     loop {
         let mut buf = vec![0; 1024];
         let (len, addr) = socket.recv_from(&mut buf).await?;
@@ -97,7 +37,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         let package = GamePacket::deserialize(&buf[..len]).unwrap();
         match package.msg_type {
             MessageType::PositionUpdate => {
-                let package = PositionGamePacket::new(package);
+                let package = PositionGamePacket::new(&package);
                 let game_state = game_state.lock().await;
                 let position_payload =
                     PlayerPosition::new(package.client_id.to_vec(), package.position);
