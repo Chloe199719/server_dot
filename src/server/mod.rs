@@ -18,11 +18,15 @@ pub struct GameServer {
 }
 
 impl GameServer {
+    #[tracing::instrument(name = "GameServer New", skip(addr))]
     pub async fn new(addr: Option<&str>) -> Result<Self, anyhow::Error> {
         match addr {
             Some(addr) => {
+                tracing::info!("Binding to address: {}", addr);
                 let socket = Arc::new(UdpSocket::bind(addr).await?);
+                tracing::info!("Socket bound to address: {}", addr);
                 let game_state = Arc::new(Mutex::new(game_state::GameState::default()));
+                tracing::info!("Game state initialized");
                 Ok(Self { socket, game_state })
             }
             None => Self::default().await,
@@ -30,30 +34,44 @@ impl GameServer {
     }
     async fn default() -> Result<Self, anyhow::Error> {
         let server_addr = "0.0.0.0:5000";
+        tracing::info!("Binding to address: {}", server_addr);
         let socket = Arc::new(UdpSocket::bind(server_addr).await?);
+        tracing::info!("Socket bound to address: {}", server_addr);
+
         let game_state = Arc::new(Mutex::new(game_state::GameState::default()));
+        tracing::info!("Game state initialized");
+
         Ok(Self { socket, game_state })
     }
+    #[tracing::instrument(name = "GameServer Run", skip(self))]
     pub async fn run(&self) -> Result<(), anyhow::Error> {
-        println!("Server started");
+        tracing::info!("Starting game server");
+        tracing::info!("Server listening on: {:?}", self.socket.local_addr()?);
+
+        tracing::info!("Spawning maintenance tasks");
         self.spawn_maintenance_tasks();
+        tracing::info!("Spawning message receiving task");
         self.spawn_handle_receiving_messages_task();
         loop {
             tokio::time::sleep(tokio::time::Duration::from_secs(1)).await;
         }
         // Ok(())
     }
+    #[tracing::instrument(name = "GameServer Spawn Maintenance Tasks", skip(self))]
     fn spawn_maintenance_tasks(&self) {
         // Spawn cleanup task
         let cleanup_state = Arc::clone(&self.game_state);
         let cleanup_socket = Arc::clone(&self.socket);
-        tokio::spawn(handle_cleanup_task(cleanup_state, cleanup_socket));
 
+        tokio::spawn(handle_cleanup_task(cleanup_state, cleanup_socket));
+        tracing::info!("Spawned cleanup task");
         // Spawn heartbeat manager
         let heartbeat_manager =
             HeartbeatManager::new(Arc::clone(&self.socket), Arc::clone(&self.game_state));
         task::spawn(async move { heartbeat_manager.run().await });
+        tracing::info!("Spawned heartbeat manager");
     }
+    #[tracing::instrument(name = "GameServer Spawn Handle Receiving Messages Task", skip(self))]
     fn spawn_handle_receiving_messages_task(&self) {
         let socket_for_task = Arc::clone(&self.socket);
         let state_for_task = Arc::clone(&self.game_state);
@@ -63,7 +81,7 @@ impl GameServer {
                 let (len, addr) = match socket_for_task.recv_from(&mut buf).await {
                     Ok((len, addr)) => (len, addr),
                     Err(e) => {
-                        eprintln!("Error receiving message: {:?}", e);
+                        tracing::error!("Error receiving from socket: {:?}", e);
                         continue;
                     }
                 };
@@ -71,7 +89,7 @@ impl GameServer {
                 let package = match GamePacket::deserialize(&buf[..len]) {
                     Some(package) => package,
                     None => {
-                        eprintln!("Error deserializing package");
+                        tracing::error!("Error deserializing packet");
                         continue;
                     }
                 };
@@ -98,19 +116,26 @@ impl GameServer {
                         .await;
                     }
                     _ => {
-                        println!("Received unhandled message type: {:?}", package.msg_type);
+                        tracing::warn!("Received unknown message type: {:?}", package.msg_type);
                     }
                 }
             }
         });
     }
+    #[tracing::instrument(name = "GameServer Handle Heartbeat", skip(state_for_task))]
     async fn handle_heartbeat(state_for_task: &Arc<Mutex<GameState>>, addr: std::net::SocketAddr) {
         let mut state = state_for_task.lock().await;
-        println!("Player count: {}", state.players.len());
+
         if let Some(player) = state.get_player_mut(&addr.to_string()) {
             player.heartbeat = Instant::now();
+        } else {
+            tracing::warn!("Received heartbeat from unknown player: {:?}", addr);
         }
     }
+    #[tracing::instrument(
+        name = "GameServer Handle Position Update",
+        skip(socket_for_task, state_for_task)
+    )]
     async fn handle_position_update(
         package: &GamePacket,
         socket_for_task: &Arc<UdpSocket>,
@@ -139,11 +164,15 @@ impl GameServer {
                     Ok(_) => {
                         // println!("Position packet sent");
                     }
-                    Err(e) => println!("Error sending position packet: {:?}", e),
+                    Err(e) => tracing::error!("Error sending position packet: {:?}", e),
                 }
             }
         }
     }
+    #[tracing::instrument(
+        name = "GameServer Handle Connection Init",
+        skip(socket_for_task, state_for_task)
+    )]
     async fn handle_connection_init(
         package: &GamePacket,
         socket_for_task: &Arc<UdpSocket>,
@@ -181,7 +210,7 @@ impl GameServer {
             Ok(_) => {
                 // println!("Position packet sent");
             }
-            Err(e) => println!("Error sending position packet: {:?}", e),
+            Err(e) => tracing::error!("Error sending position packet: {:?}", e),
         }
         for (send_addr, player) in game_state.players.iter() {
             let connection_payload =
@@ -206,7 +235,11 @@ impl GameServer {
                         //     addr, player.id
                         // );
                     }
-                    Err(e) => println!("Error sending player join packet: {:?}", e),
+                    Err(e) => tracing::error!(
+                        "Error sending player join packet: {:?} send_addr {:?}",
+                        e,
+                        send_addr
+                    ),
                 }
             }
         }
