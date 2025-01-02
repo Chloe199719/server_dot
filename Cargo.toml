@@ -19,3 +19,4 @@ tracing-subscriber = { version = "0.3", features = [    "fmt",
     'json',
     'tracing-log',] }
 tracing = { version ="0.1.40", features = ["log"] }
+tracing-appender = "0.2"
