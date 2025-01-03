@@ -19,6 +19,7 @@ pub enum MessageType {
 }
 
 impl MessageType {
+    #[must_use]
     pub fn from_byte(b: u8) -> Option<MessageType> {
         match b {
             0x01 => Some(MessageType::PositionUpdate),
@@ -33,6 +34,7 @@ impl MessageType {
     }
 }
 #[derive(Debug)]
+#[allow(clippy::module_name_repetitions)]
 pub struct GamePacket {
     pub msg_type: MessageType,
     pub version: u8,
@@ -42,6 +44,7 @@ pub struct GamePacket {
 }
 
 impl GamePacket {
+    #[must_use]
     pub fn new(msg_type: MessageType, seq_num: u32, payload: Vec<u8>, client_id: Vec<u8>) -> Self {
         GamePacket {
             msg_type,
@@ -51,9 +54,11 @@ impl GamePacket {
             client_id,
         }
     }
-
+    #[must_use]
     pub fn serialize(&self) -> Vec<u8> {
+        #[allow(clippy::arithmetic_side_effects)]
         let mut buf = BytesMut::with_capacity(1 + 1 + 18 + 4 + self.payload.len());
+        #[allow(clippy::as_conversions)]
         buf.put_u8(self.msg_type as u8);
         buf.put_u8(self.version);
         buf.put_slice(&self.client_id);
@@ -61,7 +66,7 @@ impl GamePacket {
         buf.put_slice(&self.payload);
         buf.to_vec()
     }
-
+    #[must_use]
     pub fn deserialize(data: &[u8]) -> Option<GamePacket> {
         if data.len() < 6 {
             return None; // Not enough for header
@@ -74,13 +79,14 @@ impl GamePacket {
         Some(GamePacket {
             msg_type,
             seq_num,
-            client_id: client_id.try_into().unwrap(),
+            client_id: client_id.into(),
             payload,
             version,
         })
     }
 }
 #[derive(Debug)]
+#[allow(clippy::module_name_repetitions)]
 pub struct PositionGamePacket {
     pub msg_type: MessageType,
     pub version: u8,
@@ -89,6 +95,7 @@ pub struct PositionGamePacket {
     pub position: Position,
 }
 impl PositionGamePacket {
+    #[must_use]
     pub fn new(game_packet: &GamePacket) -> Self {
         let position = Position {
             x: f32::from_be_bytes([

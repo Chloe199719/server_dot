@@ -18,7 +18,7 @@ pub async fn handle_cleanup_task(
         interval.tick().await;
         let mut state = cleanup_state.lock().await;
         if let Err(e) = state.cleanup_inactive_players(&cleanup_socket).await {
-            eprintln!("Failed to cleanup players: {}", e);
+            tracing::error!("Failed to cleanup inactive players: {e}");
         }
     }
 }
@@ -40,7 +40,7 @@ pub async fn handle_heartbeat_task(ping_state: Arc<Mutex<GameState>>, ping_socke
             let data = reply.serialize();
             if let Ok(addr) = addr.parse::<std::net::SocketAddr>() {
                 if let Err(e) = ping_socket.send_to(&data, addr).await {
-                    eprintln!("Failed to send heartbeat to {}: {}", addr, e);
+                    tracing::error!("Failed to send heartbeat: {addr}: {e}");
                 }
             }
         }
@@ -63,7 +63,7 @@ impl HeartbeatManager {
         loop {
             interval.tick().await;
             if let Err(e) = self.send_heartbeats().await {
-                eprintln!("Heartbeat error: {}", e);
+                tracing::error!("Failed to send heartbeats: {e}");
             }
         }
     }

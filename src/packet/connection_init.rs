@@ -2,6 +2,7 @@ use crate::game_state::{Player, Position};
 
 use super::{GamePacket, MessageType};
 #[derive(Debug)]
+#[allow(clippy::module_name_repetitions)]
 pub struct ConnectionInitPacketReceived {
     pub msg_type: MessageType,
     pub version: u8,
@@ -9,6 +10,7 @@ pub struct ConnectionInitPacketReceived {
 }
 
 impl ConnectionInitPacketReceived {
+    #[must_use]
     pub fn deserialize(data: &[u8]) -> Option<ConnectionInitPacketReceived> {
         if data.len() < 6 {
             return None; // Not enough for header
@@ -23,7 +25,7 @@ impl ConnectionInitPacketReceived {
         })
     }
 }
-
+#[allow(clippy::module_name_repetitions)]
 pub struct ConnectionInitPacketSent {
     pub msg_type: MessageType,
     pub version: u8,
@@ -33,15 +35,18 @@ pub struct ConnectionInitPacketSent {
 }
 
 impl ConnectionInitPacketSent {
+    #[must_use]
     pub fn serialize(&self) -> GamePacket {
+        #[allow(clippy::arithmetic_side_effects)]
         let mut buf = Vec::with_capacity(18 * self.players.len());
         for player in &self.players {
-            buf.extend_from_slice(&player.id.as_bytes());
+            buf.extend_from_slice(player.id.as_bytes());
             buf.extend_from_slice(&player.position.serialize());
         }
 
         GamePacket::new(self.msg_type, self.seq_num, buf, self.client_id.clone())
     }
+    #[must_use]
     pub fn new(seq_num: u32, client_id: Vec<u8>, players: Vec<Player>) -> Self {
         ConnectionInitPacketSent {
             msg_type: MessageType::ConnectionInit,
@@ -54,23 +59,27 @@ impl ConnectionInitPacketSent {
 }
 
 #[derive(Debug, Clone)]
+#[allow(clippy::module_name_repetitions)]
 pub struct ConnectionInitSync {
     client_id: Vec<u8>,
     pub position: Position,
 }
 impl ConnectionInitSync {
+    #[must_use]
     pub fn new(client_id: Vec<u8>, position: Position) -> Self {
         ConnectionInitSync {
             client_id,
             position,
         }
     }
+    #[must_use]
     pub fn serialize(&self) -> Vec<u8> {
         let mut buf = Vec::with_capacity(18 + 8);
         buf.extend_from_slice(&self.client_id);
         buf.extend_from_slice(&self.position.serialize());
         buf
     }
+    #[must_use]
     pub fn deserialize(data: &[u8]) -> Option<ConnectionInitSync> {
         if data.len() < 26 {
             return None;

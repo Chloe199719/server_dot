@@ -12,6 +12,7 @@ use crate::{
     tasks::{handle_cleanup_task, HeartbeatManager},
 };
 
+#[allow(clippy::module_name_repetitions)]
 pub struct GameServer {
     socket: Arc<UdpSocket>,
     game_state: Arc<Mutex<GameState>>,
@@ -85,14 +86,11 @@ impl GameServer {
                         continue;
                     }
                 };
-
-                let package = match GamePacket::deserialize(&buf[..len]) {
-                    Some(package) => package,
-                    None => {
-                        tracing::error!("Error deserializing packet");
-                        continue;
-                    }
+                let Some(package) = GamePacket::deserialize(&buf[..len]) else {
+                    tracing::error!("Error deserializing packet");
+                    continue;
                 };
+
                 match package.msg_type {
                     MessageType::PositionUpdate => {
                         Self::handle_position_update(
@@ -146,9 +144,9 @@ impl GameServer {
 
         let mut game_state = state_for_task.lock().await;
         game_state.update_player_position(addr.to_string().as_str(), package.position.clone());
-        let position_payload = PlayerPosition::new(package.client_id.to_vec(), package.position);
+        let position_payload = PlayerPosition::new(package.client_id.clone(), package.position);
 
-        for (player_id, player) in game_state.players.iter() {
+        for (player_id, player) in &game_state.players {
             if player.id != String::from_utf8(package.client_id.clone()).unwrap() {
                 let position_packet = GamePacket::new(
                     MessageType::PositionUpdate,
@@ -212,7 +210,7 @@ impl GameServer {
             }
             Err(e) => tracing::error!("Error sending position packet: {:?}", e),
         }
-        for (send_addr, player) in game_state.players.iter() {
+        for (send_addr, player) in &game_state.players {
             let connection_payload =
                 ConnectionInitSync::new(player_id.as_bytes().to_vec(), player.position.clone());
 
